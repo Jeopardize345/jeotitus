@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Typing Game</title>
+  <style>
+    :root {
+      --bg1: #00bfff;
+      --bg2: #0096d6;
+      --panel: #fff;
+      --card: #f6f6f6;
+      --text: #222;
+      --w: 420px;
+      --gap: 12px;
+    }
+    * {
+      box-sizing: border-box;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+    html, body {
+      height: 100%;
+      margin: 0;
+    }
+    body {
+      margin: 20px;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 50px;
+      background: linear-gradient(180deg, var(--bg1) 0%, var(--bg2) 100%);
+      background-attachment: fixed;
+    }
+    .panel {
+      width: var(--w);
+      background: var(--panel);
+      color: var(--text);
+      padding: 18px;
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: var(--gap);
+      box-shadow: 0 18px 40px rgba(2, 20, 35, .18);
+    }
+    .header {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+    }
+    p {
+      margin: 0;
+      opacity: .85;
+    }
+
+    /* CLEAR INPUT style: transparent background + black border */
+    .input-clear {
+      width: 100%;
+      padding: 12px;
+      border-radius: 10px;
+      border: 2px solid rgba(0,0,0,.9);
+      background: transparent;
+      color: var(--text);
+      font-size: 16px;
+      box-shadow: 0 6px 0 rgba(0,0,0,.04);
+      outline: none;
+    }
+    .input-clear:focus {
+      box-shadow: 0 6px 0 rgba(0,0,0,.04), 0 0 0 4px rgba(0,191,255,.12);
+    }
+
+    /* word list */
+    .row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .wordList {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .word {
+      padding: 12px;
+      border-radius: 10px;
+      background: var(--card);
+      color: var(--text);
+      font-size: 18px;
+      border: 2px solid rgba(0,0,0,.9);
+      box-shadow: 0 3px 0 rgba(0,0,0,.04);
+      transition: all .12s;
+    }
+    .word.found {
+      border-color: #0f8b4a;
+      box-shadow: 0 3px 0 rgba(15,139,74,.06);
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .status {
+      margin-top: 10px;
+      font-weight: bold;
+      text-align: center;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .center {
+      text-align: center;
+      margin-top: 12px;
+    }
+
+  </style>
+</head>
+<body>
+
+<!-- Page 1: Word Entry -->
+<div class="panel" id="page1" aria-hidden="false">
+  <div class="header">
+    <h1>Typing Game Setup</h1>
+    <p>Enter 4 words to start the game</p>
+  </div>
+  <div class="input-row">
+    <input id="wordInput" class="input-clear" placeholder="Enter word..." autocomplete="off" />
+    <button id="addWord">Add</button>
+  </div>
+  <p id="wordCount">0 / 4 entered</p>
+</div>
+
+<!-- Page 2: Play -->
+<div class="panel hidden" id="page2" aria-hidden="true">
+  <div class="header"><h1>TYPING GAME</h1></div>
+
+  <div class="wordList" id="wordList"></div>
+
+  <div class="input-row">
+    <input id="typeBox" class="input-clear" placeholder="type here..." autocomplete="off" />
+    <div id="typeCheck" aria-live="polite" style="font-size: 24px; width: 30px; text-align:center;"></div>
+  </div>
+
+  <div class="center">
+    <button id="restartBtn" class="hidden" style="background:#444; color:#fff; border:none; padding: 10px 20px; border-radius: 8px;">Restart</button>
+  </div>
+
+  <div id="doneMsg" class="status hidden" style="color:#0f8b4a;">All correct! 🎉</div>
+  <div id="statusMsg" class="status hidden" style="color:#b00"></div>
+</div>
+
+<script>
+  /* Typing game: Enter BUTTON removed. Pressing Enter on the keyboard still submits. 
+     Game Over after 4 wrong submissions; win when all 4 words are found.*/
+  let words = [],
+      TOTAL = 4,            // number of words required to start & number to win
+      timer = null,
+      DEBOUNCE = 500,
+      wrongAttempts = 0,
+      MAX_WRONG = 4;        // 4 wrong submissions => game over
+
+  const $ = s => document.querySelector(s);
+  const page1 = $('#page1'),
+        page2 = $('#page2'),
+        wordInput = $('#wordInput'),
+        addWord = $('#addWord'),
+        wordCount = $('#wordCount'),
+        wordList = $('#wordList'),
+        typeBox = $('#typeBox'),
+        typeCheck = $('#typeCheck'),
+        doneMsg = $('#doneMsg'),
+        statusMsg = $('#statusMsg'),
+        restartBtn = $('#restartBtn');
+
+  addWord.addEventListener('click', add);
+  wordInput.addEventListener('keydown', e => e.key === 'Enter' && add());
+
+  function add() {
+    const v = wordInput.value.trim();
+    if (!v || words.length >= TOTAL) return;
+    // avoid duplicate exact words in the list
+    if (words.some(w => w.text === v)) {
+      wordInput.value = '';
+      return;
+    }
+    words.push({ text: v, found: false });
+    wordInput.value = '';
+    wordCount.textContent = `${words.length} / ${TOTAL} entered`;
+    if (words.length === TOTAL) {
+      startGame();
+    }
+  }
+
+  function startGame() {
+    page1.classList.add('hidden');
+    page2.classList.remove('hidden');
+    page2.removeAttribute('aria-hidden');
+    renderList();
+    typeBox.disabled = false;
+    typeBox.value = '';
+    typeBox.focus();
+    wrongAttempts = 0;
+    statusMsg.classList.add('hidden');
+    doneMsg.classList.add('hidden');
+    restartBtn.classList.add('hidden');
+  }
+
+  function renderList() {
+    wordList.innerHTML = words.map((w, i) =>
+      `<div class="word${w.found ? ' found' : ''}" data-i="${i}">${w.text}</div>`
+    ).join('');
+    typeCheck.textContent = '';
+    typeCheck.classList.remove('wrong', 'correct');
+  }
+
+  // visual feedback for correct
+  const flashOk = () => {
+    typeCheck.textContent = '✔';
+    typeCheck.classList.remove('wrong');
+    typeCheck.classList.add('correct');
+    setTimeout(() => {
+      if (typeCheck.classList.contains('correct')) {
+        typeCheck.textContent = '';
+        typeCheck.classList.remove('correct');
+      }
+    }, 600);
+  };
+
+  // visual feedback for incorrect
+  const showWrong = () => {
+    typeCheck.textContent = '✖';
+    typeCheck.classList.remove('correct');
+    typeCheck.classList.add('wrong');
+  };
+
+  function endGame(win) {
+    // disable further input
+    typeBox.disabled = true;
+
+    if (win) {
+      doneMsg.textContent = "🎉 You Win!";
+      doneMsg.style.color = "#0f8b4a";
+      doneMsg.classList.remove('hidden');
+      statusMsg.classList.add('hidden');
+    } else {
+      statusMsg.textContent = "💀 Game Over! Too many wrong submissions.";
+      statusMsg.style.color = "#b00";
+      statusMsg.classList.remove('hidden');
+      doneMsg.classList.add('hidden');
+    }
+    // show restart button
+    restartBtn.classList.remove('hidden');
+  }
+
+  // Input handling with debounce and Enter key
+  typeBox.addEventListener('input', () => {
+    if (typeCheck.classList.contains('wrong') || typeCheck.classList.contains('correct')) {
+      typeCheck.textContent = '';
+      typeCheck.classList.remove('wrong', 'correct');
+    }
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      check();
+    }, DEBOUNCE);
+  });
+
+  typeBox.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      clearTimeout(timer);
+      timer = null;
+      check();
+    }
+  });
+
+  // Restart reloads the page (simple and reliable)
+  restartBtn.addEventListener('click', () => {
+    location.reload();
+  });
+
+  function check() {
+    if (typeBox.disabled) return; // nothing if game finished
+    const t = typeBox.value.trim();
+    if (!t) return;
+
+    const idx = words.findIndex(w => !w.found && w.text === t);
+
+    if (idx > -1) {
+      // correct and not previously found
+      words[idx].found = true;
+      renderList();
+      flashOk();
+      typeBox.value = '';
+      if (words.every(w => w.found)) endGame(true); // win
+      return;
+    }
+
+    // typed a word that's in the list but already found -> just positive feedback
+    if (words.findIndex(w => w.text === t) > -1) {
+      flashOk();
+      typeBox.value = '';
+      return;
+    }
+    // completely wrong input -> count as a wrong submission
+    wrongAttempts++;
+    showWrong();
+    // if user makes MAX_WRONG wrong submissions they lose
+    if (wrongAttempts >= MAX_WRONG) {
+      endGame(false); // game over
+    }
+  }
+</script>
+
+</body>
+</html>
